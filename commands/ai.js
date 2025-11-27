@@ -1,127 +1,47 @@
-// commands/ai.js
-const axios = require('axios');
+// commands/code.js
 const { sendMessage } = require('../handles/sendMessage');
-const dataManager = require('../utils/dataManager');
-
-const MAX_USES = 5; // Limite initiale d'utilisation
-const CODE_REGEX = /^[A-Z0-9-]{8,}$/i; // Pour détecter si le prompt est un code
-
-// --- LOGIQUE POLLINATIONS AI (INTÉGRÉE ICI COMME DEMANDÉ) ---
-const SYSTEM_INSTRUCTION = "Tu es Stanley Bot, un assistant conversationnel développé par Stanley Stawa. Quand on te demande ton créateur, tu dois répondre Stanley Stawa. Quand on te demande qui tu es, tu dois répondre Stanley Bot. Réponds de manière très concise.\n\n";
-const API_URL = 'https://text.pollinations.ai/';
-// -----------------------------------------------------------
+const dataManager = require('../utils/dataManager'); 
 
 module.exports = {
-  name: 'ai',
-  description: 'Stanley Bot AI Command with activation logic.',
-  usage: 'ai [votre message] | ai [votre code]',
-  author: 'coffee',
+    name: 'code', // Nom de la commande : !code
+    description: "Reçoit un code unique pour réactiver l'accès AI d'un ami (Usage unique).",
+    usage: 'code',
+    author: 'Stanley Stawa',
 
-  async execute(senderId, args, pageAccessToken) {
-    const prompt = args.join(' ').trim();
-    if (!prompt) {
-      return sendMessage(senderId, {
-        text: "❓ Veuillez poser une question."
-      }, pageAccessToken);
-    }
-
-    const usersData = dataManager.getUsers();
-    
-    // --- Initialisation/Récupération du statut de l'utilisateur ---
-    if (!usersData[senderId]) {
-        usersData[senderId] = { count: 0, active: true, unlimited: false };
-        dataManager.saveUsers(usersData);
-    }
-
-    let userStatus = usersData[senderId];
-
-    // --- 1. Tentative de réactivation ---
-    const enteredCode = args[0] ? args[0].toUpperCase() : null;
-    const codesData = dataManager.getCodes();
-    
-    // Vérifier si l'utilisateur est bloqué OU le prompt ressemble à un code de réactivation
-    if (!userStatus.active || (CODE_REGEX.test(enteredCode) && args.length === 1)) {
+    async execute(senderId, args, pageAccessToken) {
+        const codesData = dataManager.getCodes();
         
-        if (codesData.redeemed.hasOwnProperty(enteredCode)) {
-            
-            // Code valide trouvé! (L'accès devient illimité)
-            delete codesData.redeemed[enteredCode]; // Supprimer le code
-            
-            userStatus.active = true;
-            userStatus.count = 0;
-            userStatus.unlimited = true; // <--- ACCÈS PERMANENT
-            
-            dataManager.saveCodes(codesData);
-            dataManager.saveUsers(usersData);
-            
-            return sendMessage(senderId, {
-                text: `👑 Code **${enteredCode}** validé ! Votre compte est maintenant réactivé avec un **accès illimité** à la commande AI.`
-            }, pageAccessToken);
-        } 
+        // 1. VÉRIFICATION DE L'USAGE UNIQUE
+        const hasClaimedCode = Object.entries(codesData.redeemed).some(([code, status]) => status.friendId === senderId);
         
-        // Si l'utilisateur est bloqué et qu'il n'a pas saisi un code valide
-        if (!userStatus.active) {
-            return sendMessage(senderId, {
-                text: `🚫 Votre accès est bloqué. Saisissez un code de réactivation valide.\nPour obtenir un code, demandez à un ami d'utiliser la commande **!code**.`
+        if (hasClaimedCode) {
+             return sendMessage(senderId, {
+                text: `❌ Vous avez déjà réclamé un code. La commande **!code** est à usage unique par utilisateur.`
             }, pageAccessToken);
         }
-    }
 
-
-    // --- 2. Vérification du QUOTA (Seulement si NON illimité) ---
-    if (!userStatus.unlimited && userStatus.count >= MAX_USES) {
-        // L'utilisateur est limité et a atteint la limite.
-        userStatus.active = false;
-        dataManager.saveUsers(usersData); 
-        
-        return sendMessage(senderId, {
-            text: `🚫 Limite de ${MAX_USES} questions atteinte ! Votre accès est bloqué.\nPour obtenir l'accès illimité, demandez à un ami d'utiliser la commande **!code** puis saisissez le code qu'il vous enverra.`
-        }, pageAccessToken);
-    }
-
-    // --- 3. Exécution de la commande AI (SI ACTIF ou ILLIMITÉ) ---
-
-    // Préparation du prompt pour Pollinations
-    const contextPrompt = SYSTEM_INSTRUCTION + "[User] : " + prompt;
-    
-    try {
-        const encodedPrompt = encodeURIComponent(contextPrompt);
-        const url = API_URL + encodedPrompt;
-
-        const { data } = await axios.get(url, { responseType: 'text' });
-        const responseText = typeof data === 'string' ? data.trim() : 'Réponse vide.';
-
-        let quotaMessage = "";
-        
-        if (!userStatus.unlimited) {
-            // Décompter uniquement si l'accès n'est pas illimité
-            userStatus.count++;
-            const remaining = MAX_USES - userStatus.count;
-            quotaMessage = `(${remaining} questions restantes)`;
-        } else {
-            quotaMessage = "(Accès Illimité)";
-        }
-        
-        dataManager.saveUsers(usersData); // Sauvegarder le nouveau compteur ou le statut illimité
-        
-        // Réponse formatée
-        const formattedResponse = `💬 | Stanley Stawa 😙🚬\n・───────────・\n${responseText}\n・${quotaMessage}・──── 💫 ────・`;
-        
-        // Découpe et envoi du message
-        const parts = [];
-        for (let i = 0; i < formattedResponse.length; i += 1900) {
-            parts.push(formattedResponse.substring(i, i + 1900));
+        // 2. Vérifier s'il y a des codes disponibles
+        if (codesData.available.length === 0) {
+            return sendMessage(senderId, {
+                text: "❌ Désolé, tous les codes d'invitation ont été utilisés. Réessayez plus tard."
+            }, pageAccessToken);
         }
 
-        for (const part of parts) {
-            await sendMessage(senderId, { text: part }, pageAccessToken);
-        }
+        // 3. Distribuer le code - LOGIQUE DE SÉLECTION ALÉATOIRE
         
-    } catch (error) {
-        // En cas d'échec de l'API, ne pas décompter l'utilisation
-        sendMessage(senderId, {
-            text: "🤖 Une erreur est survenue avec l'API Pollinations de Stanley.\nRéessayez plus tard."
-        }, pageAccessToken);
+        // Choisir un index aléatoire dans le tableau des codes disponibles
+        const randomIndex = Math.floor(Math.random() * codesData.available.length);
+        
+        // Retirer le code à cet index et le récupérer. splice retourne un tableau, [0] donne l'élément.
+        const newCode = codesData.available.splice(randomIndex, 1)[0]; 
+        
+        // Stocker le code, en notant l'ami qui l'a reçu (pour le contrôle d'usage unique).
+        codesData.redeemed[newCode] = { friendId: senderId, claimed: false }; 
+        
+        dataManager.saveCodes(codesData);
+
+        const friendMessage = `🎉 Félicitations ! Votre code de réactivation est : **${newCode}**\n\nEnvoyez ce code à votre ami pour qu'il puisse le saisir dans le chat AI.`;
+        
+        return sendMessage(senderId, { text: friendMessage }, pageAccessToken);
     }
-  }
 };
