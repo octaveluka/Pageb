@@ -95,7 +95,8 @@ const headers = {
         };
       }
 
-const { data } = await axios.post("https://newapplication-70381.chipp.ai/api/chat", payload, { headers });
+// MODIFICATION APPLIQUÉE ICI : Ajout du slash (/) à la fin de l'URL
+const { data } = await axios.post("https://newapplication-70381.chipp.ai/api/chat/", payload, { headers });
 
       // Gather the main text from the response chunks
       const responseTextChunks = data.match(/"result":"(.*?)"/g)?.map(chunk => chunk.slice(10, -1).replace(/\\n/g, '\n')) 
@@ -141,7 +142,7 @@ const { data } = await axios.post("https://newapplication-70381.chipp.ai/api/cha
 
       // If no tools matched or no special handling, just send the full text
       if (!fullResponseText) {
-        throw new Error('Empty response from the AI.');
+        throw new new Error('Empty response from the AI.');
       }
 
       conversationHistory[senderId].push({ role: 'assistant', content: fullResponseText });
