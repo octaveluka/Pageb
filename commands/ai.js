@@ -57,7 +57,7 @@ module.exports = {
       conversationHistory[senderId].push(`[AI] : ${responseText.split('\n')[0] || responseText}`);
       
       // 3. Découper et envoyer la réponse
-      const finalResponse = `🤖 Pollinations AI\n・───────────・\n${responseText}\n・──── 💫 ────・`;
+      const finalResponse = `Stanley Stawa 😙🚬\n・───────────・\n${responseText}\n・──── 💫 ────・`;
       const parts = [];
       for (let i = 0; i < finalResponse.length; i += 1800) {
         parts.push(finalResponse.substring(i, i + 1800));
@@ -69,7 +69,7 @@ module.exports = {
     } catch (error) {
       console.error('Erreur avec Pollinations Text API :', error.message);
       sendMessage(senderId, {
-        text: "🤖 Une erreur est survenue avec Pollinations AI.\nRéessayez plus tard ou posez une autre question."
+        text: "🤖 Pas de chance .\nRéessayez plus tard ou posez une autre question."
       }, pageAccessToken);
     }
   }
