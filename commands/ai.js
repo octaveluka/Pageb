@@ -1,26 +1,7 @@
 const axios = require('axios');
 const { sendMessage } = require('../handles/sendMessage');
 
-// Objet pour stocker l'historique de conversation de chaque utilisateur.
-const conversationHistory = {};
-
-/**
- * Fonction utilitaire pour formater l'historique en une seule chaîne.
- * Elle est conservée pour la personnalité.
- */
-function formatHistory(senderId, currentPrompt) {
-    let history = conversationHistory[senderId] || [];
-    
-    // Limiter l'historique à 3 messages pour une URL plus courte et plus rapide
-    const historyLimit = 3; 
-    const recentHistory = history.slice(-historyLimit); 
-
-    let formattedHistory = recentHistory.map(item => `[${item.role}] : ${item.content}`).join('\n') + '\n';
-    
-    return formattedHistory + "[User] : " + currentPrompt;
-}
-
-// NOTE: La fonction performGoogleSearch a été complètement supprimée.
+// La gestion de l'historique (conversationHistory et formatHistory) a été supprimée.
 
 module.exports = {
   name: 'ai',
@@ -35,36 +16,27 @@ module.exports = {
         text: "❓ Veuillez poser une question."
       }, pageAccessToken);
     }
-
-    // Initialiser l'historique
-    if (!conversationHistory[senderId]) {
-        conversationHistory[senderId] = [];
-    }
     
     // 1. Préparer le prompt final
     
-    // INSTRUCTION SYSTÈME AVEC LA PERSONNALITÉ (sans mention de recherche Google)
-    let systemInstruction = "Tu es Stanley Bot, un assistant conversationnel développé par Stanley Stawa. Quand on te demande ton créateur, tu dois répondre Stanley Stawa. Quand on te demande qui tu es, tu dois répondre Stanley Bot. Réponds de manière très concise.\n\n";
+    // Instruction Système de Personnalité : Reste courte pour la vitesse.
+    const systemInstruction = "Tu es Stanley Bot, un assistant conversationnel développé par Stanley Stawa. Quand on te demande ton créateur, tu dois répondre Stanley Stawa. Quand on te demande qui tu es, tu dois répondre Stanley Bot. Réponds de manière très concise.\n\n";
     
-    const contextPrompt = systemInstruction + formatHistory(senderId, prompt);
+    // Le prompt final est simplement l'instruction + la question de l'utilisateur.
+    const contextPrompt = systemInstruction + "[User] : " + prompt;
     
     try {
       const encodedPrompt = encodeURIComponent(contextPrompt);
       const url = `https://text.pollinations.ai/${encodedPrompt}`;
 
-      // Envoyer la requête à l'API Pollinations (le seul point d'attente)
+      // Envoi de la requête à l'API Pollinations (le point critique de vitesse)
       const { data } = await axios.get(url, {
         responseType: 'text'
       });
 
       const responseText = typeof data === 'string' ? data.trim() : 'Réponse vide.';
 
-      // 2. Mettre à jour l'historique de conversation
-      conversationHistory[senderId].push({ role: 'user', content: prompt });
-      conversationHistory[senderId].push({ role: 'ai', content: responseText.split('\n')[0] || responseText });
-      
-      // 3. Découper et envoyer la réponse
-      // J'ai utilisé votre format de message personnalisé pour l'envoi : Stanley Stawa 😙🚬
+      // 2. Découper et envoyer la réponse
       const formattedResponse = `💬 | Stanley Stawa 😙🚬\n・───────────・\n${responseText}\n・──── 💫 ────・`;
       
       const parts = [];
