@@ -1,47 +1,115 @@
-// commands/code.js
+// commands/ai.js
+const axios = require('axios');
 const { sendMessage } = require('../handles/sendMessage');
-const dataManager = require('../utils/dataManager'); 
+const dataManager = require('../utils/dataManager'); // VÉRIFIEZ CE CHEMIN !
+
+const MAX_USES = 5; // Limite initiale d'utilisation
+const CODE_REGEX = /^[A-Z0-9-]{8,}$/i; 
+const API_URL = 'https://text.pollinations.ai/';
 
 module.exports = {
-    name: 'code', // Nom de la commande : !code
-    description: "Reçoit un code unique pour réactiver l'accès AI d'un ami (Usage unique).",
-    usage: 'code',
-    author: 'Stanley Stawa',
+  name: 'ai', // DOIT ÊTRE 'ai'
+  description: 'AI Command avec limite d\'utilisation et activation par code.',
+  usage: 'ai [votre message] | ai [votre code]',
+  author: 'coffee',
 
-    async execute(senderId, args, pageAccessToken) {
-        const codesData = dataManager.getCodes();
-        
-        // 1. VÉRIFICATION DE L'USAGE UNIQUE
-        const hasClaimedCode = Object.entries(codesData.redeemed).some(([code, status]) => status.friendId === senderId);
-        
-        if (hasClaimedCode) {
-             return sendMessage(senderId, {
-                text: `❌ Vous avez déjà réclamé un code. La commande **!code** est à usage unique par utilisateur.`
-            }, pageAccessToken);
-        }
-
-        // 2. Vérifier s'il y a des codes disponibles
-        if (codesData.available.length === 0) {
-            return sendMessage(senderId, {
-                text: "❌ Désolé, tous les codes d'invitation ont été utilisés. Réessayez plus tard."
-            }, pageAccessToken);
-        }
-
-        // 3. Distribuer le code - LOGIQUE DE SÉLECTION ALÉATOIRE
-        
-        // Choisir un index aléatoire dans le tableau des codes disponibles
-        const randomIndex = Math.floor(Math.random() * codesData.available.length);
-        
-        // Retirer le code à cet index et le récupérer. splice retourne un tableau, [0] donne l'élément.
-        const newCode = codesData.available.splice(randomIndex, 1)[0]; 
-        
-        // Stocker le code, en notant l'ami qui l'a reçu (pour le contrôle d'usage unique).
-        codesData.redeemed[newCode] = { friendId: senderId, claimed: false }; 
-        
-        dataManager.saveCodes(codesData);
-
-        const friendMessage = `🎉 Félicitations ! Votre code de réactivation est : **${newCode}**\n\nEnvoyez ce code à votre ami pour qu'il puisse le saisir dans le chat AI.`;
-        
-        return sendMessage(senderId, { text: friendMessage }, pageAccessToken);
+  async execute(senderId, args, pageAccessToken) {
+    const prompt = args.join(' ').trim();
+    if (!prompt) {
+      return sendMessage(senderId, {
+        text: "❓ Veuillez poser une question."
+      }, pageAccessToken);
     }
+
+    // --- LECTURE DES DONNÉES (DOIT ÊTRE RAPIDE) ---
+    const usersData = dataManager.getUsers();
+    
+    // 1. Initialisation/Récupération du statut de l'utilisateur
+    if (!usersData[senderId]) {
+        usersData[senderId] = { count: 0, active: true, unlimited: false };
+        dataManager.saveUsers(usersData);
+    }
+
+    let userStatus = usersData[senderId];
+
+    // --- 2. Tentative de réactivation (Saisie d'un code) ---
+    const enteredCode = args[0] ? args[0].toUpperCase() : null;
+    const codesData = dataManager.getCodes();
+    
+    if (!userStatus.active || (CODE_REGEX.test(enteredCode) && args.length === 1)) {
+        
+        if (codesData.redeemed.hasOwnProperty(enteredCode)) {
+            
+            delete codesData.redeemed[enteredCode]; 
+            userStatus.active = true;
+            userStatus.count = 0;
+            userStatus.unlimited = true; 
+            
+            dataManager.saveCodes(codesData);
+            dataManager.saveUsers(usersData);
+            
+            return sendMessage(senderId, {
+                text: `👑 Code **${enteredCode}** validé ! Votre compte est maintenant réactivé avec un **accès illimité** à la commande AI.`
+            }, pageAccessToken);
+        } 
+        
+        if (!userStatus.active) {
+            return sendMessage(senderId, {
+                text: `🚫 Votre accès est bloqué. Saisissez un code de réactivation valide.\nPour obtenir un code, demandez à un ami d'utiliser la commande **!code**.`
+            }, pageAccessToken);
+        }
+    }
+
+
+    // --- 3. Vérification du QUOTA ---
+    if (!userStatus.unlimited && userStatus.count >= MAX_USES) {
+        userStatus.active = false;
+        dataManager.saveUsers(usersData); 
+        
+        return sendMessage(senderId, {
+            text: `🚫 Limite de ${MAX_USES} questions atteinte ! Votre accès est bloqué.\nPour obtenir l'accès illimité, demandez à un ami d'utiliser la commande **!code** puis saisissez le code qu'il vous enverra.`
+        }, pageAccessToken);
+    }
+
+    // --- 4. Exécution de la commande AI ---
+
+    const contextPrompt = prompt; 
+    
+    try {
+        const encodedPrompt = encodeURIComponent(contextPrompt);
+        const url = API_URL + encodedPrompt;
+
+        const { data } = await axios.get(url, { responseType: 'text' });
+        const responseText = typeof data === 'string' ? data.trim() : 'Réponse vide.';
+
+        let quotaMessage = "";
+        
+        if (!userStatus.unlimited) {
+            userStatus.count++;
+            const remaining = MAX_USES - userStatus.count;
+            quotaMessage = `\n(Quota: ${remaining} questions restantes)`; 
+        } else {
+            quotaMessage = "\n(Quota: Accès Illimité)"; 
+        }
+        
+        dataManager.saveUsers(usersData); 
+        
+        const formattedResponse = `${responseText}${quotaMessage}`;
+        
+        const parts = [];
+        for (let i = 0; i < formattedResponse.length; i += 1800) {
+            parts.push(formattedResponse.substring(i, i + 1800));
+        }
+
+        for (const part of parts) {
+            await sendMessage(senderId, { text: part }, pageAccessToken);
+        }
+        
+    } catch (error) {
+        console.error('Erreur avec Pollinations Text API :', error.message);
+        sendMessage(senderId, {
+            text: "🤖 Une erreur est survenue avec l'API Pollinations.\nRéessayez plus tard."
+        }, pageAccessToken);
+    }
+  }
 };
