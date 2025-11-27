@@ -1,24 +1,22 @@
 // commands/code.js
 const { sendMessage } = require('../handles/sendMessage');
-const dataManager = require('../utils/dataManager');
+const dataManager = require('../utils/dataManager'); 
 
 module.exports = {
     name: 'code', // Nom de la commande : !code
-    description: "Reçoit un code unique pour réactiver l'accès AI d'un ami.",
+    description: "Reçoit un code unique pour réactiver l'accès AI d'un ami (Usage unique).",
     usage: 'code',
     author: 'Stanley Stawa',
 
     async execute(senderId, args, pageAccessToken) {
         const codesData = dataManager.getCodes();
         
-        // 1. Vérifier si l'utilisateur a déjà un code non validé
-        // Nous cherchons dans 'redeemed' si cet utilisateur (friendId) a déjà réclamé un code.
-        const userCodeEntry = Object.entries(codesData.redeemed).find(([code, status]) => status.friendId === senderId);
+        // 1. VÉRIFICATION DE L'USAGE UNIQUE
+        const hasClaimedCode = Object.entries(codesData.redeemed).some(([code, status]) => status.friendId === senderId);
         
-        if (userCodeEntry) {
-             const userCode = userCodeEntry[0];
+        if (hasClaimedCode) {
              return sendMessage(senderId, {
-                text: `🔒 Vous avez déjà un code actif : **${userCode}**\nDonnez ce code à votre ami pour qu'il le saisisse dans le chat AI !`
+                text: `❌ Vous avez déjà réclamé un code. La commande **!code** est à usage unique par utilisateur.`
             }, pageAccessToken);
         }
 
@@ -29,10 +27,15 @@ module.exports = {
             }, pageAccessToken);
         }
 
-        // 3. Distribuer le code
-        const newCode = codesData.available.pop();
+        // 3. Distribuer le code - LOGIQUE DE SÉLECTION ALÉATOIRE
         
-        // Stocker le code dans la liste redeemed, avec l'ID de l'ami qui l'a reçu.
+        // Choisir un index aléatoire dans le tableau des codes disponibles
+        const randomIndex = Math.floor(Math.random() * codesData.available.length);
+        
+        // Retirer le code à cet index et le récupérer. splice retourne un tableau, [0] donne l'élément.
+        const newCode = codesData.available.splice(randomIndex, 1)[0]; 
+        
+        // Stocker le code, en notant l'ami qui l'a reçu (pour le contrôle d'usage unique).
         codesData.redeemed[newCode] = { friendId: senderId, claimed: false }; 
         
         dataManager.saveCodes(codesData);
